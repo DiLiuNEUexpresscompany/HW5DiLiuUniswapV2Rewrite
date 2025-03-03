@@ -1,17 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import "../src/UniswapV2ERC20.sol";
 
+contract UniswapV2ERC20Harness is UniswapV2ERC20 {
+    // 暴露所有需要测试的internal函数
+    function mint(address to, uint value) public {
+        _mint(to, value);
+    }
+
+    function burn(address from, uint value) public {
+        _burn(from, value);
+    }
+
+    function callTransfer(address from, address to, uint value) public {
+        _transfer(from, to, value);
+    }
+
+    function callApprove(address owner, address spender, uint value) public {
+        _approve(owner, spender, value);
+    }
+}
+
 contract UniswapV2ERC20Test is Test {
-    UniswapV2ERC20 token;
+    UniswapV2ERC20Harness token; // 改为使用Harness合约
     address alice = vm.addr(1);
     address bob = vm.addr(2);
     address carol = vm.addr(3);
     
     function setUp() public {
-        token = new UniswapV2ERC20();
+        token = new UniswapV2ERC20Harness(); // 实例化Harness合约
     }
 
     // 测试构造函数初始化
@@ -28,21 +47,19 @@ contract UniswapV2ERC20Test is Test {
         assertEq(token.DOMAIN_SEPARATOR(), domainSeparator);
     }
 
-    // 测试铸币功能
+    // 测试铸币功能（通过Harness）
     function test_Mint() public {
-        vm.prank(alice);
-        token._mint(alice, 100);
+        token.mint(alice, 100); // 改为调用Harness的public方法
 
         assertEq(token.totalSupply(), 100);
         assertEq(token.balanceOf(alice), 100);
     }
 
-    // 测试销毁功能
+    // 测试销毁功能（通过Harness）
     function test_Burn() public {
-        token._mint(alice, 100);
+        token.mint(alice, 100); // 使用Harness方法
         
-        vm.prank(alice);
-        token._burn(alice, 40);
+        token.burn(alice, 40); // 使用Harness方法
 
         assertEq(token.totalSupply(), 60);
         assertEq(token.balanceOf(alice), 60);
@@ -50,7 +67,7 @@ contract UniswapV2ERC20Test is Test {
 
     // 测试转账功能
     function test_Transfer() public {
-        token._mint(alice, 100);
+        token.mint(alice, 100);
         
         vm.prank(alice);
         token.transfer(bob, 50);
@@ -61,7 +78,7 @@ contract UniswapV2ERC20Test is Test {
 
     // 测试授权转账
     function test_TransferFrom() public {
-        token._mint(alice, 100);
+        token.mint(alice, 100);
         vm.prank(alice);
         token.approve(bob, 60);
 
@@ -74,7 +91,7 @@ contract UniswapV2ERC20Test is Test {
 
     // 测试无限授权
     function test_InfiniteApproval() public {
-        token._mint(alice, 100);
+        token.mint(alice, 100);
         vm.prank(alice);
         token.approve(bob, type(uint).max);
 
@@ -119,23 +136,22 @@ contract UniswapV2ERC20Test is Test {
         assertEq(token.nonces(owner), 1);
     }
 
-    // 测试边界条件
+    // 测试边界条件（通过Harness）
     function testFuzz_EdgeCases(address to, uint256 amount) public {
         vm.assume(to != address(0));
         vm.assume(amount < type(uint256).max);
 
-        // 测试最大铸币
-        token._mint(to, type(uint256).max);
+        // 使用Harness方法
+        token.mint(to, type(uint256).max);
         assertEq(token.balanceOf(to), type(uint256).max);
 
-        // 测试销毁全部
-        token._burn(to, type(uint256).max);
+        token.burn(to, type(uint256).max);
         assertEq(token.balanceOf(to), 0);
     }
 
     // 测试异常情况
     function test_Revert_TransferInsufficientBalance() public {
-        token._mint(alice, 100);
+        token.mint(alice, 100);
         
         vm.prank(alice);
         vm.expectRevert();
@@ -147,5 +163,20 @@ contract UniswapV2ERC20Test is Test {
         
         vm.expectRevert("UniswapV2: EXPIRED");
         token.permit(alice, bob, 100, expiredDeadline, 0, 0, 0);
+    }
+
+    // 新增：测试直接转账函数
+    function test_InternalTransfer() public {
+        token.mint(address(this), 100);
+        token.callTransfer(address(this), bob, 70); // 测试internal _transfer
+        
+        assertEq(token.balanceOf(bob), 70);
+    }
+
+    // 新增：测试直接授权函数
+    function test_InternalApprove() public {
+        token.callApprove(address(this), bob, 500); // 测试internal _approve
+        
+        assertEq(token.allowance(address(this), bob), 500);
     }
 }
